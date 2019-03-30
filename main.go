@@ -6,21 +6,23 @@ import (
 )
 
 // Bind binds the content of data into the struct s
-func Bind(tagName string, s interface{}, data map[string]interface{}) {
+func Bind(tagName string, s interface{}, data map[string]interface{}) interface{} {
 	if s == nil {
-		return
+		return nil
 	}
 	
 	t := reflect.TypeOf(s)
+	tk := t.Kind()
 	
-	if t.Kind() != reflect.Ptr {
-		return
+	if tk != reflect.Ptr {
+		return nil
 	}
 	
 	t = t.Elem()
+	tk = t.Kind()
 	
-	if t.Kind() != reflect.Struct {
-		return
+	if tk != reflect.Struct {
+		return nil
 	}
 	
 	v := reflect.ValueOf(s).Elem()
@@ -30,16 +32,44 @@ func Bind(tagName string, s interface{}, data map[string]interface{}) {
 		fi := ParseField(tagName, f)
 		
 		fv := v.FieldByName(fi.Name)
+		fk := fv.Kind()
 		ft := fv.Type()
 		
 		if v, ok := data[fi.Alias]; ok {
 			vt := reflect.TypeOf(v)
+			vk := vt.Kind()
 			
 			if vt.AssignableTo(ft) {
 				fv.Set(reflect.ValueOf(v))
-			} else {
-			
+				continue
 			}
+			
+			if fk == reflect.Struct && vk == reflect.Map {
+				Bind(tagName, fv.Addr().Interface(), v.(map[string]interface{}))
+				continue
+			}
+		}
+	}
+	
+	return s
+}
+
+func BindSlice(tagName string, s reflect.Value, data []interface{}) {
+	// sk := s.Kind()
+	et := s.Type().Elem()
+	ek := et.Kind()
+	
+	ret := reflect.MakeSlice(et, s.Len(), s.Cap())
+	vet := reflect.TypeOf(data).Elem()
+	if vet.AssignableTo(et) {
+		for i := 0; i < s.Len(); i++ {
+			ret.Index(i).Set(reflect.ValueOf(data[i]))
+		}
+	} else if ek == reflect.Struct {
+		for i := 0; i < s.Len(); i++ {
+			// v := Bind(tagName, ret.Index(i).Addr().Interface(), data[i].(map[string]interface{}))
+			v := Bind(tagName, ret.Index(i).Addr().Interface(), data[i].(map[string]interface{}))
+			ret.Index(i).Set(reflect.ValueOf(v))
 		}
 	}
 }
@@ -50,6 +80,7 @@ type FieldInfo struct {
 	Name string
 }
 
+// ParseField parses [FieldInfo] for the given struct field [f] from struct tag with name [tagName]
 func ParseField(tagName string, f reflect.StructField) *FieldInfo {
 	var parts []string
 	alias := f.Name
